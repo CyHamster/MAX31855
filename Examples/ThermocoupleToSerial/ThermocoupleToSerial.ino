@@ -1,53 +1,59 @@
-/*******************************************************************************
-* Thermocouple to serial for MAX31855 example 
-* Version: 1.00
-* Date: 26-12-2011
-* Company: Rocket Scream Electronics
-* Website: www.rocketscream.com
-*
-* This is an example of using the MAX31855 library for Arduino to read 
-* temperature from a thermocouple and send the reading to serial interfacec. 
-* Please check our wiki (www.rocketscream.com/wiki) for more information on 
-* using this piece of library.
-*
-* This example code is licensed under Creative Commons Attribution-ShareAlike 
-* 3.0 Unported License.
-*
-* Revision  Description
-* ========  ===========
-* 1.00      Initial public release.
-*
-*******************************************************************************/
-// ***** INCLUDES *****
-#include  <MAX31855.h>
+/*
+  read_MAX31855.ino
+ 
+ TODO: 
+   Clean up code and comment!!  
+ 	Also make use of all library functions and make more robust.
+ 
+ This work is licensed under a Creative Commons Attribution-ShareAlike 3.0 Unported License.
+ http://creativecommons.org/licenses/by-sa/3.0/
+ */
 
-// ***** PIN DEFINITIONS *****
-const  unsigned  char thermocoupleSO = 12;
-const  unsigned  char thermocoupleCS = 10;
-const  unsigned  char thermocoupleCLK = 13;
+#include <MAX31855.h>
 
-MAX31855  MAX31855(thermocoupleSO, thermocoupleCS, thermocoupleCLK);
+// Arduino MEGA ports
 
-void  setup()
-{
+int SCLK = 51;
+int SDI = 53;
+int CS = 50;
+
+float tempTC, tempCJC, realTemp;
+bool dataValid;
+long bitData;
+String errorCodes = "";
+
+MAX31855 thermo1(SDI, SCLK, CS, type_N);
+
+void setup() {
   Serial.begin(57600);
 }
 
-void  loop()
-{
-  double  temperature;
-  
-  // Retrieve thermocouple temperature in Degree Celsius
-  temperature = MAX31855.readThermocouple(CELSIUS);
-  Serial.print("Thermocouple temperature: ");
-  Serial.print(temperature);
-  Serial.println(" Degree Celsius");
-  
-  // Retrieve cold junction temperature in Degree Celsius
-  temperature = MAX31855.readJunction(CELSIUS);
-  Serial.print("Junction temperature: ");
-  Serial.print(temperature);
-  Serial.println(" Degree Celsius");
-  
-  delay(1000);
+void loop() {
+  int cntr1;
+  tempTC=0.0;
+  realTemp=0.0;
+  tempCJC=0.0;
+
+  dataValid = thermo1.readData();
+  if(dataValid==false)
+  {
+    errorCodes =  thermo1.faultCondition();
+    Serial.print("Thermocouple error found: ");
+    Serial.println(errorCodes);
+  }
+  else
+  {
+    tempCJC = tempCJC + thermo1.temperatureCJC(CELSIUS);
+    tempTC = tempTC + thermo1.temperature(CELSIUS);
+    realTemp = realTemp + thermo1.temperature(ADJUSTEDCELSIUS);
+    Serial.print(realTemp);
+    Serial.print("\t");
+    Serial.print(tempTC);
+    Serial.print("\t");
+    Serial.println(tempCJC);
+  }
+
+
+  delay(2000);
 }
+
