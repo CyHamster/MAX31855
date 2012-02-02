@@ -1,29 +1,29 @@
 #######################################
-# Syntax Coloring Map MAX31855
+# Syntax Coloring Map For MAX31855
 #######################################
 
 #######################################
 # Datatypes (KEYWORD1)
 #######################################
 
-MAX31855	KEYWORD1
+MAX31855  KEYWORD1
 
 #######################################
 # Methods and Functions (KEYWORD2)
 #######################################
 
-readThermocouple	KEYWORD2
-readJunction	KEYWORD2
-
-#######################################
-# Instances (KEYWORD2)
-#######################################
-
-#######################################
-# Constants (LITERAL1)
-#######################################
-CELSIUS	LITERAL1
-FAHRENHEIT	LITERAL1	
-FAULT_OPEN	LITERAL1
-FAULT_SHORT_GND	LITERAL1
-FAULT_SHORT_VCC	LITERAL1
+readData 	KEYWORD2
+temperature  	KEYWORD2
+temperatureCJC 	KEYWORD2
+faultCondition 	KEYWORD2
+type_K 		KEYWORD2
+type_J 		KEYWORD2
+type_N 		KEYWORD2
+type_S 		KEYWORD2
+type_T 		KEYWORD2
+type_E 		KEYWORD2
+type_R 		KEYWORD2
+CELSIUS		KEYWORD2
+FAHRENHEIT 	KEYWORD2
+VOLTAGE 	KEYWORD2
+ADJUSTEDCELSIUS	KEYWORD2
