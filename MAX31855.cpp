@@ -1,13 +1,25 @@
 /*******************************************************************************
 * MAX31855 Library
-* Version: 1.00
-* Date: 26-12-2011
-* Company: Rocket Scream Electronics
-* Website: www.rocketscream.com
+* Version: 1.01
+* Date: 1-2-2012
+* Contributor: Mark Griffiths
+* Company: None
+* Website: justforrealmen.com
 *
-* This is a MAX31855 library for Arduino. Please check our wiki 
-* (www.rocketscream.com/wiki) for more information on using this piece of 
-* library.
+* This is a MAX31855 library for Arduino. It is based on a library from
+* Rocket Scream Electronics (www.rocketscream.com). 
+* 
+* Adjustments made include:
+* Correct handling of negative temperatures
+* Passing of chip 'thermocouple type' to library for use in calculating thermocouple voltages and 'adjusted' temperatures
+* Use of thermocouple coefficients for more accurate calculation of actual temperature (only N type currently)
+* Returning of the actual bit string from chip for debugging purposes
+* Single capture and use of data from chip rather than seperate for thermocouple reading and CJ reading
+*
+*
+* Left to do:
+* Include coefficients for other thermocouple types (only use N and R personally so all the rest are up to you! ;) )
+* 
 *
 * This library is licensed under Creative Commons Attribution-ShareAlike 3.0 
 * Unported License.
@@ -19,178 +31,245 @@
 *******************************************************************************/
 #include	"MAX31855.h"
 
-MAX31855::MAX31855(unsigned char SO, unsigned	char CS, unsigned char SCK)
-{
-	so = SO;
-	cs = CS;
-	sck = SCK;
-	
-	// MAX31855 data output pin
-	pinMode(so, INPUT);
-	// MAX31855 chip select input pin
-	pinMode(cs, OUTPUT);
-	// MAX31855 clock input pin
-	pinMode(sck, OUTPUT);
-	
-	// Default output pins state
-	digitalWrite(cs, HIGH);
-	digitalWrite(sck, LOW);
-}
 
-/*******************************************************************************
-* Name: readThermocouple
-* Description: Read the thermocouple temperature either in Degree Celsius or
-*							 Fahrenheit. Internally, the conversion takes place in the
-*							 background within 100 ms. Values are updated only when the CS
-*							 line is high.
+/******************************************************************************
+*	MAX31855
 *
-* Argument  	Description
-* =========  	===========
-* 1. unit   	Unit of temperature required: CELSIUS or FAHRENHEIT
+* create an instance of the library passing in the pins used and chip thermocouple type
 *
-* Return			Description
-* =========		===========
-*	temperature	Temperature of the thermocouple either in Degree Celsius or 
-*							Fahrenheit. If fault is detected, FAULT_OPEN, FAULT_SHORT_GND or
-*							FAULT_SHORT_VCC will be returned. These fault values are outside
-*							of the temperature range the MAX31855 is capable of.
-*******************************************************************************/	
-double	MAX31855::readThermocouple(unit_t	unit)
-{
-	unsigned long data;
-	double temperature;
-	
-	// Initialize temperature
-	temperature = 0;
-	
-	// Shift in 32-bit of data from MAX31855
-	data = readData();
-	
-	// If fault is detected
-	if (data & 0x00010000)
-	{
-		// Check for fault type (3 LSB)
-		switch (data & 0x00000007)
-		{
-			// Open circuit 
-			case 0x01:
-				temperature = FAULT_OPEN;
-				break;
-			
-			// Thermocouple short to GND
-			case 0x02:
-				temperature = FAULT_SHORT_GND;
-				break;
-			
-			// Thermocouple short to VCC	
-			case 0x04:
-				temperature = FAULT_SHORT_VCC;
-				break;
-		}
-	}
-	// No fault detected
-	else
-	{
-		// Retrieve thermocouple temperature data and strip redundant data
-		data = data >> 18;
-		// Convert to Degree Celsius
-		temperature = data * 0.25;
-		// If temperature unit in Fahrenheit is desired
-		if (unit == FAHRENHEIT)
-		{
-			// Convert Degree Celsius to Fahrenheit
-			temperature = (temperature * 9.0/5.0)+ 32; 
-		}
-	}
-	return (temperature);
-}
+*/
 
-/*******************************************************************************
-* Name: readJunction
-* Description: Read the thermocouple temperature either in Degree Celsius or
-*							 Fahrenheit. Internally, the conversion takes place in the
-*							 background within 100 ms. Values are updated only when the CS
-*							 line is high.
-*
-* Argument  	Description
-* =========  	===========
-* 1. unit   	Unit of temperature required: CELSIUS or FAHRENHEIT
-*
-* Return			Description
-* =========		===========
-*	temperature	Temperature of the cold junction either in Degree Celsius or 
-*							Fahrenheit. 
-*
-*******************************************************************************/
-double	MAX31855::readJunction(unit_t	unit)
-{
-	double	temperature;
-	unsigned long data;
-	
-	// Shift in 32-bit of data from MAX31855
-	data = readData();
-	
-	// Strip fault data bits & reserved bit
-	data = data >> 4;
-	// Remove other redundant data bits
-	data &= 0x00000FFF;
-	// Convert to Degree Celsius
-	temperature = data * 0.0625;
-	
-	// If temperature unit in Fahrenheit is desired
-	if (unit == FAHRENHEIT)
-	{
-		// Convert Degree Celsius to Fahrenheit
-		temperature = (temperature * 9.0/5.0)+ 32; 	
-	}
-	
-	// Return the temperature
-	return (temperature);
-}
+MAX31855::MAX31855(byte SO, byte SCK, byte CS, int tcType)
+  {
+    _sdo = SO;
+    _sck = SCK;
+    _cs = CS;
+    _tc_type = tcType;
+    
 
-/*******************************************************************************
-* Name: readData
-* Description: Shift in 32-bit of data from MAX31855 chip. Minimum clock pulse
-*							 width is 100 ns. No delay is required in this case.
+    // set correct pin Modes and initial states
+    pinMode(_sdo, INPUT);
+    pinMode(_sck, OUTPUT);
+    digitalWrite(_sck, LOW);
+    pinMode(_cs, OUTPUT);
+    digitalWrite(_cs, HIGH);
+  }
+  
+
+/****************************************************************************
+*	readData
+* 
+* read in the data from the chip and store it internally for use in subsequent temperature readings
 *
-* Argument  	Description
-* =========  	===========
-* 1. NIL
+* returns bool: 'true' if the bit data indicates no 'fault', otherwise returns 'false'
 *
-* Return			Description
-* =========		===========
-*	data				32-bit of data acquired from the MAX31855 chip.
-*				
-*******************************************************************************/
-unsigned long MAX31855::readData()
+*/
+
+bool MAX31855::readData()
 {
 	int bitCount;
-	unsigned long data;
+	bool dataValid;
 	
-	// Clear data 
-	data = 0;
-
-	// Select the MAX31855 chip
-	digitalWrite(cs, LOW);
+	digitalWrite(_sck, LOW);
+	digitalWrite(_cs, LOW);
+        bitData = 0;
+        delayMicroseconds(1);
 	
 	// Shift in 32-bit of data
 	for (bitCount = 31; bitCount >= 0; bitCount--)
 	{
-		digitalWrite(sck, HIGH);
+		digitalWrite(_sck, HIGH);
 		
 		// If data bit is high
-		if (digitalRead(so))
+		if (digitalRead(_sdo))
 		{
-			// Need to type cast data type to unsigned long, else compiler will 
-			// truncate to 16-bit
-			data |= ((unsigned long)1 << bitCount);
+			bitData |= ((long)1 << bitCount);
 		}	
 		
-		digitalWrite(sck, LOW);
+		digitalWrite(_sck, LOW);
 	}
 	
 	// Deselect MAX31855 chip
-	digitalWrite(cs, HIGH);
-	
-	return(data);
+	digitalWrite(_cs, HIGH);
+        if(bitData & 0x00010000 == 0x00010000)
+        {
+	  // set dataValid to 'false' if the 'FAULT' bit (D16) is set
+	dataValid = false;
+        }
+        else
+	{
+	// set dataValid to 'true' if no 'FAULT' condition present
+        dataValid = true;
+	}
+	return dataValid;
+}
+
+
+/****************************************************************************
+*	faultCondition
+*
+* used to check what faults the chip has triggered 
+*
+* returns string: list of fault conditions triggered
+*
+*/
+
+String MAX31855::faultCondition()
+{
+
+String faults = "";
+
+	if(bitData & 0x0001)
+	{
+	faults = "Open Circuit ";
+	}
+	if(bitData & 0x0002)
+	{
+	faults += "Short to GND ";
+	}
+	if(bitData & 0x0004)
+	{
+	faults += "Short to Vcc";
+	}
+return faults;
+}
+
+/****************************************************************************
+*	temperature
+*
+* calculates the temperature from the bit data and converts it to the 'unit' requested
+*
+* is passed enum: CELSIUS, FAHRENHEIT, VOLTAGE, ADJUSTEDCELSIUS
+* indicating the requested temperature unit
+*
+* returns float: temperature in the requested unit
+*
+*/
+
+float MAX31855::temperature(scale unit)
+{
+  long data;
+  float temperature;
+  
+  data = bitData >> 18;
+  
+  
+  switch(unit)
+  {
+    case CELSIUS:
+      temperature = data * 0.25;
+      break;
+    case FAHRENHEIT:
+      temperature = data * 0.45 + 32;
+      break;
+    case VOLTAGE:
+      //for N types only at this time
+      temperature = data * 9.064;
+      break;
+    case ADJUSTEDCELSIUS:
+	switch(_tc_type)
+		{
+		case type_N:
+			temperature = adjustTemp(data);
+			break;
+		}
+
+  }
+  return temperature;
+}
+
+
+/****************************************************************************
+*	temperatureCJC
+*
+* calculates the cold junction temperature from the bit data and converts it to the 'unit' requested
+*
+* is passed enum: CELSIUS, FAHRENHEIT
+*
+* returns float: temperature in the requested unit
+*
+*/
+
+float MAX31855::temperatureCJC(scale unit)
+{
+  int data;
+  float temperature;
+  
+  data = bitData;
+  data = data >> 4;
+  
+  
+  switch(unit)
+  {
+    case CELSIUS:
+      temperature = data * 0.0625;
+      break;
+    case FAHRENHEIT:
+      temperature = data * 0.1125 + 32;
+      break;
+  }
+  return temperature;
+}
+
+
+/****************************************************************************
+*	adjustTemp	internal only function
+*
+* adjusts the measured temperature using the ITS90 coefficients
+*
+* is passed long: the bit data for the thermocouple
+*
+* returns float: the compensated temperature
+*
+*/
+
+float MAX31855::adjustTemp(long inTemp)
+{
+float CJCtemp;
+float CJCvoltage;
+float adjustedtemp;
+float adjustedvoltage;
+
+ CJCtemp = temperatureCJC(CELSIUS);
+ CJCvoltage = CJCtemp * 2.5929394601e01;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,2) * 1.5710141880e-02;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,3) * 4.3825627237e-05;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,4) * -2.5261169794e-07;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,5) * 6.4311819339e-10;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,6) * -1.0063471519e-12;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,7) * 9.9745338992e-16;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,8) * -6.0863245607e-19;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,9) * 2.0849229339e-22;
+ CJCvoltage = CJCvoltage + pow(CJCtemp,10) * -3.0682196151e-26;
+
+ adjustedvoltage = inTemp * 9.064;
+ adjustedvoltage -= CJCvoltage;
+
+ adjustedtemp = adjustedvoltage * 3.8783277e-02;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,2) * -1.1612344e-06;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,3) * 6.9525655e-11;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,4) * -3.0090077e-15;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,5) * 8.8311584e-20;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,6) * -1.6213839e-24;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,7) * 1.6693362e-29;
+ adjustedtemp = adjustedtemp + pow(adjustedvoltage,8) * -7.3117540e-35;
+ adjustedtemp += CJCtemp;
+
+ return adjustedtemp;
+}
+
+
+/****************************************************************************
+*	bitString
+*
+* used for debugging purposes, comparing the temperatures outputted by the library against the bit string 'BY HAND!'
+*
+* returns long: bit data from chip
+*
+*
+*/
+
+long MAX31855::bitString()
+{
+return bitData;
 }
